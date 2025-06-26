@@ -1,0 +1,14 @@
+streamlit
+openai
+pandas
+numpy
+openpyxl
+tqdm
+gdown
+beautifulsoup4
+requests
+gspread
+io
+re
+difflib
+gspread_dataframe
