@@ -1,14 +1,7 @@
 streamlit
-openai
-pandas
-numpy
-openpyxl
-tqdm
 gdown
-beautifulsoup4
-requests
+pandas
+openpyxl
 gspread
-io
-re
-difflib
 gspread_dataframe
+numpy
