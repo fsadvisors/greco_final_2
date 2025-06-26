@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 
 st.set_page_config(page_title="Greco.AI Reconciliation", page_icon="🧾", layout="wide")
 st.sidebar.title("Greco.AI")
-st.sidebar.markdown("Automated file fetch from a public Google Sheet containing GDrive links.")
+st.sidebar.markdown("Automated file fetch from a public Google Sheet containing direct file links.")
 
 sheet_url = st.sidebar.text_input("Paste your public Google Sheet URL here:")
 
@@ -41,12 +41,18 @@ def get_latest_link(df, file_type):
         return filtered.iloc[-1]["link"]
     return None
 
-
-def read_file(file_path):
+def read_file_from_link(link):
     try:
-        return pd.read_csv(file_path)
-    except Exception:
-        return pd.read_excel(file_path)
+        if link.endswith(".csv") or "format=csv" in link:
+            return pd.read_csv(link)
+        elif link.endswith(".xlsx") or "format=xlsx" in link:
+            return pd.read_excel(link)
+        else:
+            st.error("Unknown file format. Make sure the link ends with .csv or .xlsx or contains ?format=csv/xlsx")
+            return None
+    except Exception as e:
+        st.error(f"Could not read the file from link: {e}")
+        return None
 
 def get_suffix(filename: str) -> str:
     fn = filename.lower()
@@ -129,9 +135,8 @@ def make_remark_logic(row, gst_sfx, books_sfx, amount_tol, date_tol):
         return "✅ Matched, trivial error"
     return "✅ Matched"
 
-gst_file = books_file = None
+gst_file_link = books_file_link = ""
 df_gst = df_books = None
-gst_filename = books_filename = ""
 
 if sheet_url:
     gsheet_df = get_gsheet_data(sheet_url)
@@ -139,35 +144,21 @@ if sheet_url:
         st.success("Loaded Google Sheet!")
         with st.expander("Show Sheet Data"):
             st.dataframe(gsheet_df)
-        gst_link = get_latest_link(gsheet_df, "gst")
-        books_link = get_latest_link(gsheet_df, "books")
-        gst_filename = ""
-        books_filename = ""
+        gst_file_link = get_latest_link(gsheet_df, "gst")
+        books_file_link = get_latest_link(gsheet_df, "books")
 
-        if gst_link:
-            gst_file = '/tmp/portal_file'
-            download_drive_file(gst_link, gst_file)
-            try:
-                df_gst = pd.read_csv(gst_file)
-                gst_filename = gst_link
-            except Exception:
-                df_gst = pd.read_excel(gst_file)
-                gst_filename = gst_link
-            st.success("GST file downloaded and loaded.")
+        if gst_file_link:
+            df_gst = read_file_from_link(gst_file_link)
+            if df_gst is not None:
+                st.success("GST file loaded.")
 
-        if books_link:
-            books_file = '/tmp/books_file'
-            download_drive_file(books_link, books_file)
-            try:
-                df_books = pd.read_csv(books_file)
-                books_filename = books_link
-            except Exception:
-                df_books = pd.read_excel(books_file)
-                books_filename = books_link
-            st.success("Books file downloaded and loaded.")
+        if books_file_link:
+            df_books = read_file_from_link(books_file_link)
+            if df_books is not None:
+                st.success("Books file loaded.")
 
-        if not gst_link or not books_link:
-            st.warning("Did not find both GST and Books links in the sheet.")
+        if not gst_file_link or not df_gst is not None or not books_file_link or not df_books is not None:
+            st.warning("Did not find both GST and Books links in the sheet or failed to load files.")
 
 with st.expander("⚙️ Threshold Settings", expanded=True):
     amt_threshold  = st.selectbox(
@@ -182,10 +173,9 @@ with st.expander("⚙️ Threshold Settings", expanded=True):
     )
 
 if df_gst is not None and df_books is not None:
-    gst_sfx   = get_suffix(gst_filename or "portal.csv")
-    books_sfx = get_suffix(books_filename or "books.csv")
+    gst_sfx   = get_suffix(gst_file_link or "portal.csv")
+    books_sfx = get_suffix(books_file_link or "books.csv")
 
-    # Directly rename columns with suffix (since both are same now)
     df_gst_ren   = df_gst.rename(columns={col: f"{col}{gst_sfx}" for col in HEADERS if col in df_gst.columns})
     df_books_ren = df_books.rename(columns={col: f"{col}{books_sfx}" for col in HEADERS if col in df_books.columns})
 
