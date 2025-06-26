@@ -1,5 +1,4 @@
 streamlit
-gdown
 pandas
 openpyxl
 numpy
