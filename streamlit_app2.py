@@ -41,8 +41,6 @@ def get_latest_link(df, file_type):
         return filtered.iloc[-1]["link"]
     return None
 
-def download_drive_file(drive_url, output_path):
-    gdown.download(drive_url, output_path, quiet=False, fuzzy=True)
 
 def read_file(file_path):
     try:
