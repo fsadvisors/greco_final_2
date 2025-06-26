@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import gdown
-import gspread
 import io
 import re
 from difflib import SequenceMatcher
@@ -28,16 +27,15 @@ HEADERS = [
     "CESS",
 ]
 
-# --- Google Sheet Reading ---
 def get_gsheet_data(sheet_url):
-    gc = gspread.Client(None)
-  # None for public sheets only
-    # Extract key from https://docs.google.com/spreadsheets/d/<KEY>/edit...
-    key = sheet_url.split("/d/")[1].split("/")[0]
-    sh = gc.open_by_key(key)
-    worksheet = sh.get_worksheet(0)
-    df = pd.DataFrame(worksheet.get_all_records())
-    return df
+    try:
+        key = sheet_url.split("/d/")[1].split("/")[0]
+        export_url = f"https://docs.google.com/spreadsheets/d/{key}/export?format=csv"
+        df = pd.read_csv(export_url)
+        return df
+    except Exception as e:
+        st.error(f"Could not load Google Sheet: {e}")
+        return None
 
 def get_latest_link(df, file_type):
     filtered = df[df["type"].str.lower() == file_type]
@@ -54,7 +52,6 @@ def read_file(file_path):
     except Exception:
         return pd.read_excel(file_path)
 
-# --- Reconciliation Logic (copied from earlier file) ---
 def get_suffix(filename: str) -> str:
     fn = filename.lower()
     if "portal" in fn or "gst" in fn:
@@ -142,8 +139,8 @@ df_gst = df_books = None
 gst_filename = books_filename = ""
 
 if sheet_url:
-    try:
-        gsheet_df = get_gsheet_data(sheet_url)
+    gsheet_df = get_gsheet_data(sheet_url)
+    if gsheet_df is not None:
         st.success("Loaded Google Sheet!")
         with st.expander("Show Sheet Data"):
             st.dataframe(gsheet_df)
@@ -176,9 +173,6 @@ if sheet_url:
 
         if not gst_link or not books_link:
             st.warning("Did not find both GST and Books links in the sheet.")
-
-    except Exception as e:
-        st.error(f"Could not load Google Sheet or files: {e}")
 
 # --- Threshold Settings ---
 with st.expander("⚙️ Threshold Settings", expanded=True):
@@ -221,22 +215,18 @@ if df_gst is not None and df_books is not None:
                 st.error(f"Please map '{req}' in Books")
                 st.stop()
 
-        # Rename columns as per mapping
         rename_gst   = {gst_map[h]: f"{h}{gst_sfx}"   for h in HEADERS if gst_map[h]}
         rename_books = {books_map[h]: f"{h}{books_sfx}" for h in HEADERS if books_map[h]}
         df_gst_ren   = df_gst.rename(columns=rename_gst)
         df_books_ren = df_books.rename(columns=rename_books)
 
-        # Clean
         df_gst_cl   = clean_df(df_gst_ren, gst_sfx)
         df_books_cl = clean_df(df_books_ren, books_sfx)
 
-        # Key & Merge
         df_gst_cl["key"]   = df_gst_cl[f"Invoice No{gst_sfx}"].astype(str)   + "_" + df_gst_cl[f"GSTIN{gst_sfx}"]
         df_books_cl["key"] = df_books_cl[f"Invoice No{books_sfx}"].astype(str) + "_" + df_books_cl[f"GSTIN{books_sfx}"]
         merged = pd.merge(df_gst_cl, df_books_cl, on="key", how="outer")
 
-        # Remarks
         merged["Remarks"] = merged.apply(
             lambda r: make_remark_logic(r, gst_sfx, books_sfx, amt_threshold, date_threshold),
             axis=1
@@ -245,7 +235,6 @@ if df_gst is not None and df_books is not None:
         st.success("✅ Reconciliation Complete!")
         st.session_state.merged = merged
 
-# --- Summary & Table ---
 if "merged" in st.session_state:
     df = st.session_state.merged
     st.subheader("📊 Summary")
@@ -294,7 +283,6 @@ if "merged" in st.session_state:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-# --- Display preview if available, even before recon ---
 if df_gst is not None:
     st.subheader("GST Data (Preview)")
     st.dataframe(df_gst.head())
