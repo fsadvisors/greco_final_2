@@ -10,10 +10,8 @@ st.set_page_config(page_title="Greco.AI Reconciliation", page_icon="🧾", layou
 st.sidebar.title("Greco.AI")
 st.sidebar.markdown("Automated file fetch from a public Google Sheet containing GDrive links.")
 
-# --- USER INPUT: Google Sheet URL ---
 sheet_url = st.sidebar.text_input("Paste your public Google Sheet URL here:")
 
-# --- CANONICAL HEADERS ---
 HEADERS = [
     "Party",
     "GSTIN",
@@ -32,6 +30,7 @@ def get_gsheet_data(sheet_url):
         key = sheet_url.split("/d/")[1].split("/")[0]
         export_url = f"https://docs.google.com/spreadsheets/d/{key}/export?format=csv"
         df = pd.read_csv(export_url)
+        df.columns = [c.strip().lower() for c in df.columns]
         return df
     except Exception as e:
         st.error(f"Could not load Google Sheet: {e}")
@@ -133,7 +132,6 @@ def make_remark_logic(row, gst_sfx, books_sfx, amount_tol, date_tol):
         return "✅ Matched, trivial error"
     return "✅ Matched"
 
-# --- Download, Read and Process Files ---
 gst_file = books_file = None
 df_gst = df_books = None
 gst_filename = books_filename = ""
@@ -174,7 +172,6 @@ if sheet_url:
         if not gst_link or not books_link:
             st.warning("Did not find both GST and Books links in the sheet.")
 
-# --- Threshold Settings ---
 with st.expander("⚙️ Threshold Settings", expanded=True):
     amt_threshold  = st.selectbox(
         "Amount difference threshold for mismatch",
@@ -187,53 +184,28 @@ with st.expander("⚙️ Threshold Settings", expanded=True):
         index=4
     )
 
-# --- Reconciliation Section ---
 if df_gst is not None and df_books is not None:
     gst_sfx   = get_suffix(gst_filename or "portal.csv")
     books_sfx = get_suffix(books_filename or "books.csv")
 
-    st.subheader("🔄 Column Mapping")
-    with st.expander("Map GSTR-2B Columns", expanded=True):
-        gst_map = {}
-        for h in HEADERS:
-            gst_map[h] = st.selectbox(
-                f"{h} →", [""] + list(df_gst.columns), key=f"gst_map_{h}"
-            )
-    with st.expander("Map Books Columns", expanded=True):
-        books_map = {}
-        for h in HEADERS:
-            books_map[h] = st.selectbox(
-                f"{h} →", [""] + list(df_books.columns), key=f"books_map_{h}"
-            )
+    # Directly rename columns with suffix (since both are same now)
+    df_gst_ren   = df_gst.rename(columns={col: f"{col}{gst_sfx}" for col in HEADERS if col in df_gst.columns})
+    df_books_ren = df_books.rename(columns={col: f"{col}{books_sfx}" for col in HEADERS if col in df_books.columns})
 
-    if st.button("⚙️ Process Reconciliation"):
-        for req in ["Invoice No","GSTIN"]:
-            if not gst_map.get(req):
-                st.error(f"Please map '{req}' in GSTR-2B")
-                st.stop()
-            if not books_map.get(req):
-                st.error(f"Please map '{req}' in Books")
-                st.stop()
+    df_gst_cl   = clean_df(df_gst_ren, gst_sfx)
+    df_books_cl = clean_df(df_books_ren, books_sfx)
 
-        rename_gst   = {gst_map[h]: f"{h}{gst_sfx}"   for h in HEADERS if gst_map[h]}
-        rename_books = {books_map[h]: f"{h}{books_sfx}" for h in HEADERS if books_map[h]}
-        df_gst_ren   = df_gst.rename(columns=rename_gst)
-        df_books_ren = df_books.rename(columns=rename_books)
+    df_gst_cl["key"]   = df_gst_cl[f"Invoice No{gst_sfx}"].astype(str)   + "_" + df_gst_cl[f"GSTIN{gst_sfx}"]
+    df_books_cl["key"] = df_books_cl[f"Invoice No{books_sfx}"].astype(str) + "_" + df_books_cl[f"GSTIN{books_sfx}"]
+    merged = pd.merge(df_gst_cl, df_books_cl, on="key", how="outer")
 
-        df_gst_cl   = clean_df(df_gst_ren, gst_sfx)
-        df_books_cl = clean_df(df_books_ren, books_sfx)
+    merged["Remarks"] = merged.apply(
+        lambda r: make_remark_logic(r, gst_sfx, books_sfx, amt_threshold, date_threshold),
+        axis=1
+    )
 
-        df_gst_cl["key"]   = df_gst_cl[f"Invoice No{gst_sfx}"].astype(str)   + "_" + df_gst_cl[f"GSTIN{gst_sfx}"]
-        df_books_cl["key"] = df_books_cl[f"Invoice No{books_sfx}"].astype(str) + "_" + df_books_cl[f"GSTIN{books_sfx}"]
-        merged = pd.merge(df_gst_cl, df_books_cl, on="key", how="outer")
-
-        merged["Remarks"] = merged.apply(
-            lambda r: make_remark_logic(r, gst_sfx, books_sfx, amt_threshold, date_threshold),
-            axis=1
-        )
-
-        st.success("✅ Reconciliation Complete!")
-        st.session_state.merged = merged
+    st.success("✅ Reconciliation Complete!")
+    st.session_state.merged = merged
 
 if "merged" in st.session_state:
     df = st.session_state.merged
