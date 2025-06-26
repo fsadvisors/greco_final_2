@@ -30,7 +30,8 @@ HEADERS = [
 
 # --- Google Sheet Reading ---
 def get_gsheet_data(sheet_url):
-    gc = gspread.service_account(filename=None)  # None for public sheets only
+    gc = gspread.Client(None)
+  # None for public sheets only
     # Extract key from https://docs.google.com/spreadsheets/d/<KEY>/edit...
     key = sheet_url.split("/d/")[1].split("/")[0]
     sh = gc.open_by_key(key)
